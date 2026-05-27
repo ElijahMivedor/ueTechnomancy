@@ -1,0 +1,25 @@
+{
+    "FileVersion": 3,
+    "Version": 1,
+    "VersionName": "1.0",
+    "FriendlyName": "TechnoMancy",
+    "Description": "RuneScript: an in-game scripting language for programmable weapons.",
+    "Category": "Scripting",
+    "CreatedBy": "TechnoMancy",
+    "CreatedByURL": "",
+    "DocsURL": "",
+    "MarketplaceURL": "",
+    "SupportURL": "",
+    "EnabledByDefault": true,
+    "CanContainContent": true,
+    "IsBetaVersion": true,
+    "IsExperimentalVersion": false,
+    "Installed": false,
+    "Modules": [
+        {
+            "Name": "TechnoMancy",
+            "Type": "Runtime",
+            "LoadingPhase": "Default"
+        }
+    ]
+}
