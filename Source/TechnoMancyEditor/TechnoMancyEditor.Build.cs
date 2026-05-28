@@ -2,9 +2,9 @@
 
 using UnrealBuildTool;
 
-public class TechnoMancy : ModuleRules
+public class TechnoMancyEditor : ModuleRules
 {
-	public TechnoMancy(ReadOnlyTargetRules Target) : base(Target)
+	public TechnoMancyEditor(ReadOnlyTargetRules Target) : base(Target)
 	{
 		PCHUsage = ModuleRules.PCHUsageMode.UseExplicitOrSharedPCHs;
 		bEnableExceptions = true;
@@ -14,15 +14,25 @@ public class TechnoMancy : ModuleRules
 			"Core",
 			"CoreUObject",
 			"Engine",
-			"NetCore",
-			"UMG",
+			"TechnoMancy",
 		});
 
 		PrivateDependencyModuleNames.AddRange(new string[]
 		{
-			"InputCore",
+			"UnrealEd",
+			"AssetTools",
+			"AssetRegistry",
+			"ContentBrowser",
 			"Slate",
 			"SlateCore",
+			"UMG",
+			"Blutility",
+			"UMGEditor",
+			"EditorStyle",
+			"EditorFramework",
+			"PropertyEditor",
+			"InputCore",
+			"ToolMenus",
 		});
 	}
 }

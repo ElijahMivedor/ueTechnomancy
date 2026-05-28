@@ -20,6 +20,11 @@
             "Name": "TechnoMancy",
             "Type": "Runtime",
             "LoadingPhase": "Default"
+        },
+        {
+            "Name": "TechnoMancyEditor",
+            "Type": "Editor",
+            "LoadingPhase": "PostEngineInit"
         }
     ]
 }

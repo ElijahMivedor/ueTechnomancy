@@ -4,8 +4,8 @@ An Unreal Engine 5.7 plugin that lets players program their weapons with an in-g
 
 This README covers two audiences:
 
-- **Players** writing spells — see [RuneScript Language](#runescript-language) and [Library Reference](#library-reference).
-- **Game developers** integrating the plugin — see [Quick Start](#quick-start-for-game-developers) and [Integration Guide](#integration-guide).
+- **Players** writing spells — see [RuneScript Language](#runescript-language) and [Library Reference](#library-reference). Or jump to [EXAMPLE_SPELLS.md](EXAMPLE_SPELLS.md) for a cookbook of working spells.
+- **Game developers** integrating the plugin — see [Quick Start](#quick-start-for-game-developers) and [Integration Guide](#integration-guide). For extending the library system, see [ADDING_LIBRARIES.md](ADDING_LIBRARIES.md).
 
 ---
 
@@ -105,10 +105,18 @@ TechnoMancy (Runtime module)
 +-- FRuneLibraryRegistry      [Singleton: namespace.method -> callback]
 +-- Built-in libraries        [15 namespaces, 109 functions]
 +-- URuneSpellAsset           [UDataAsset spell wrapper]
-+-- URuneWeaponComponent      [Drop-in component]
++-- URuneWeaponComponent      [Drop-in component, server-authoritative + replicated]
 +-- ARuneProjectile           [Base projectile actor]
 +-- URuneScriptBPLib          [Blueprint facade]
 +-- ARuneLibraryInitialiser   [Optional BP-extensible registration actor]
++-- URuneCodeEditor           [UMG widget: SMultiLineEditableTextBox + marshaller]
++-- URuneTerminalWidget       [In-game terminal UUserWidget orchestrator]
++-- FRuneSyntaxHighlightMarshaller  [Slate text-layout marshaller for highlighting]
+
+TechnoMancyEditor (Editor module — stripped from packaged builds)
++-- URuneSpellAssetFactory    [Content Browser "Add New" entry]
++-- FRuneSpellAssetActions    [Asset type registration]
++-- URuneEditorTerminalWidget [Designer authoring UEditorUtilityWidget base]
 ```
 
 ### Source layout
@@ -845,18 +853,30 @@ Use these to power a terminal UI's "Validate", "Estimate Mana", and autocomplete
 
 ## Multiplayer Notes
 
-The interpreter is designed to be server-authoritative. In the current build (Phase 3), it runs wherever you call `Invoke` from — single-player setups work out of the box.
+The interpreter is **server-authoritative**. The component:
 
-Phase 4 will add:
+- Replicates `CurrentMana` and `SpellSource` (`UPROPERTY(Replicated)` and `ReplicatedUsing=OnRep_SpellSource`)
+- Exposes `RequestCompile(NewSource)` as the client-side entry point. Calling it on a client forwards to `Server_RequestCompile`. Calling it on the server compiles directly.
+- Fires `OnCompileResult(bSuccess, Errors)` on the originating client after `Server_RequestCompile` finishes.
+- Fires `OnSpellSourceChanged(NewSource)` on every client when `SpellSource` replicates.
+- Short-circuits all `Invoke*` calls on clients (`GetOwnerRole() != ROLE_Authority` returns `true` immediately).
 
-- `Server_RequestCompile(FString Source)` RPC
-- `Client_OnCompileResult(bool bSuccess, TArray<FString> Errors)` RPC
-- `UPROPERTY(Replicated)` on `CurrentMana` and `SpellSource`
-- `HasAuthority` guards on all `Invoke*` functions
+### Client/server flow
 
-For now, if you wire input on a client, route the compile request through your own server RPC.
+A typical "player flashes a new spell" sequence:
 
-The component already calls `SetIsReplicatedByDefault(true)` in its constructor, so adding the replicated properties in Phase 4 won't require changing the component setup on the actor.
+1. Player types in `URuneTerminalWidget`, clicks **Flash**
+2. Widget calls `WeaponComponent->RequestCompile(source)`
+3. On a client, this triggers `Server_RequestCompile_Implementation` on the server's component
+4. Server validates `bAllowPlayerEdits`, compiles, updates `SpellSource` (replicated) and `bReady`
+5. Server calls `Client_OnCompileResult_Implementation` back to the originating client
+6. Client's `URuneTerminalWidget` displays the error list or "Flashed successfully"
+
+The `URuneCodeEditor`'s **Simulate** button runs the lexer + parser locally — no RPC needed for syntax validation or static mana estimates.
+
+### Locking spells to designer presets
+
+Set `bAllowPlayerEdits = false` on the `URuneWeaponComponent` to lock the weapon to its `DefaultSpellAsset`. `Server_RequestCompile` rejects all incoming source with the error `"This weapon's spell is locked by the designer"`. The in-game terminal widget displays the source as read-only when bound to a locked weapon.
 
 ---
 
@@ -870,19 +890,38 @@ The component already calls `SetIsReplicatedByDefault(true)` in its constructor,
 
 ## Phase Status
 
-The full project is planned in seven phases (see PRD). Current state:
+All seven phases of the plugin (per the PRD) are now in place:
 
 | Phase | Scope | Status |
 | --- | --- | --- |
 | 1 | Core language (lexer, parser, interpreter) | Complete |
 | 2 | All 15 libraries registered with stubs | Complete |
 | 3 | Weapon component, spell asset, BP library, real effects | Complete |
-| 4 | Multiplayer replication (RPCs, OnRep) | Pending |
-| 5 | In-game terminal widget with syntax highlighting | Pending |
-| 6 | Editor authoring + DefaultSpellAsset preset workflow | Pending |
-| 7 | Polish + docs + sample project | Pending |
+| 4 | Multiplayer replication (RPCs, OnRep, authority guards) | Complete |
+| 5 | In-game terminal widget with syntax highlighting | Complete (C++) |
+| 6 | Editor authoring + DefaultSpellAsset preset workflow | Complete (C++) |
+| 7 | Docs + library extension guide + example spells | Complete |
 
-In Phase 3, **31 of 64 elemental library functions** are wired to real game effects (all projectile-spawning, AoE damage, beams, shockwaves, and the mana-bridging utilities `void.siphon` / `bio.drain`). The remaining 33 (walls, DoTs, status effects, buffs, movement, time dilation, chain modifiers) are intentionally logged stubs — they need a status / effect system to plug into, and game projects are expected to register their own callbacks against those keys (see [Customisation](#customisation--extension)).
+**31 of 64 elemental library functions** are wired to real game effects (all projectile-spawning, AoE damage, beams, shockwaves, and the mana-bridging utilities `void.siphon` / `bio.drain`). The remaining 33 (walls, DoTs, status effects, buffs, movement, time dilation, chain modifiers) are intentionally logged stubs — game projects register their own callbacks against those keys (see [ADDING_LIBRARIES.md](ADDING_LIBRARIES.md)).
+
+### What's still designer work
+
+Some pieces of Phases 5 and 6 can only be authored inside the UE Editor and are not in this repo:
+
+- `WBP_RuneTerminal.uasset` — Blueprint subclass of `URuneTerminalWidget`. Create in your project, lay out the UMG, and name child widgets to match the `BindWidget` properties (see [Creating WBP_RuneTerminal](#creating-wbp_runeterminal)).
+- `EUW_RuneEditorTerminal.uasset` — Editor Utility Widget Blueprint subclass of `URuneEditorTerminalWidget`. Similar story for the editor authoring experience.
+- An example map with a sample weapon BP + sample `DA_Spell_*` assets — left for the consuming project.
+
+### Creating WBP_RuneTerminal
+
+1. Content Browser → **Add New → User Interface → Widget Blueprint**
+2. When prompted for parent class, pick **RuneTerminalWidget**
+3. In the Designer tab, drag children into the canvas. Name them exactly:
+   - `CodeEditor` — drag a **Rune Code Editor** widget (under TechnoMancy in the palette). Required.
+   - `FlashButton` — a Button. Required.
+   - `SimulateButton`, `ResetButton` — Buttons. Optional.
+   - `CharCounterText`, `ManaEstimateText`, `ErrorListText`, `StatusText`, `SpellNameText` — Text Blocks. Optional.
+4. Call `Set Weapon Component` from your HUD code with the player's active `URuneWeaponComponent`.
 
 ---
 
